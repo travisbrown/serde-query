@@ -203,7 +203,7 @@ impl Node {
                     prefix,
                 }
             }
-            QueryFragment::CollectArray { optional: _, rest } => {
+            QueryFragment::CollectArray { rest } => {
                 let element_ty = quote::quote!(<#ty as serde_query::__priv::Container>::Element);
                 let child = Box::new(Self::from_query(
                     env,

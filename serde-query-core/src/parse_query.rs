@@ -13,23 +13,21 @@ pub enum Query {
         value: usize,
         optional: bool,
     },
-    CollectArray {
-        optional: bool,
-    },
+    CollectArray,
 }
 
 impl Query {
-    fn set_optional(&mut self) {
+    fn set_optional(&mut self) -> bool {
         match self {
             Self::Field { optional, .. } => {
                 *optional = true;
+                true
             }
             Self::Index { optional, .. } => {
                 *optional = true;
+                true
             }
-            Self::CollectArray { optional } => {
-                *optional = true;
-            }
+            Self::CollectArray => false,
         }
     }
 }
@@ -128,8 +126,16 @@ fn read_queries(lexer: &mut Lexer<Token>, queries: &mut Vec<Query>, errors: &mut
                     read_queries(lexer, queries, errors);
                 }
                 Ok(Token::QuestionMark) => {
-                    query.set_optional();
-                    queries.push(query);
+                    if query.set_optional() {
+                        queries.push(query);
+                    } else {
+                        errors.push(ParseError::expected_token(
+                            lexer.span().start,
+                            lexer.span().end,
+                            Token::Dot,
+                            Some(Token::QuestionMark),
+                        ));
+                    }
 
                     if let Some(token) = lexer.next() {
                         match token {
@@ -255,7 +261,7 @@ fn read_bracketed(lexer: &mut Lexer<Token>, errors: &mut Vec<ParseError>) -> Opt
                 optional: false,
             })
         }
-        [] => Some(Query::CollectArray { optional: false }),
+        [] => Some(Query::CollectArray),
         [(token, _), ..] => {
             errors.push(ParseError::expected_other(
                 start,
@@ -286,7 +292,7 @@ pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
                 Query::Index { value, optional } => {
                     QueryFragment::index_array(value, optional, rest)
                 }
-                Query::CollectArray { optional } => QueryFragment::collect_array(optional, rest),
+                Query::CollectArray => QueryFragment::collect_array(rest),
             });
     (fragment, errors)
 }
