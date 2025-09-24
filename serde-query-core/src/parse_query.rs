@@ -25,9 +25,6 @@ enum Token {
     QuotedField,
     #[regex(r#"[0-9]+"#)]
     Index,
-    // #[error]
-    //#[regex(r"[ \t\n\f]+", logos::skip)]
-    //Error,
 }
 
 #[derive(Debug)]
