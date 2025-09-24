@@ -4,6 +4,7 @@ members = [
     "serde-query",
     "serde-query-core",
     "serde-query-derive",
+    "scratch",
 ]
 
 [workspace.dependencies]
