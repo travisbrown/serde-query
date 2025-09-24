@@ -14,19 +14,14 @@ readme = "README.md"
 
 [features]
 default = ["derive"]
-
 derive = ["serde-query-derive"]
 
 [dependencies]
-serde = "1.0.115"
-
-[dependencies.serde-query-derive]
-version = "0.2.0"
-path = "../serde-query-derive"
-optional = true
+serde =  { workspace = true }
+serde-query-derive = { version = "0.2.0", path = "../serde-query-derive/", optional = true }
 
 [dev-dependencies]
-serde_json = "1.0.57"
-ureq = "1.4.0"
-trybuild = "1.0.41"
-k9 = "0.11.6"
+k9 = "0.12"
+serde_json = { workspace = true }
+trybuild = "1"
+ureq = { version = "3", features = ["json"] }

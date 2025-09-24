@@ -15,10 +15,7 @@ categories = ["encoding"]
 proc-macro = true
 
 [dependencies]
-syn = { workspace = true }
-quote = { workspace = true }
 proc-macro-error = { workspace = true }
-
-[dependencies.serde-query-core]
-version = "0.2.0"
-path = "../serde-query-core"
+quote = { workspace = true }
+serde-query-core = { version = "0.2.0", path = "../serde-query-core/" }
+syn = { workspace = true }

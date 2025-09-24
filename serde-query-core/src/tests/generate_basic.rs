@@ -38,8 +38,7 @@ const _: () = {
             };
             deserializer.deserialize_map(visitor)?;
             if self.x.is_none() {
-                *self
-                    .x = core::option::Option::Some(
+                *self.x = core::option::Option::Some(
                     core::result::Result::Err(
                         serde_query::__priv::Error::borrowed(
                             "x",
@@ -50,8 +49,7 @@ const _: () = {
                 );
             }
             if self.y.is_none() {
-                *self
-                    .y = core::option::Option::Some(
+                *self.y = core::option::Option::Some(
                     core::result::Result::Err(
                         serde_query::__priv::Error::borrowed(
                             "y",
@@ -92,8 +90,7 @@ const _: () = {
                         let mut y = core::option::Option::None;
                         let x = match &mut self.x {
                             core::option::Option::Some(core::result::Result::Ok(_)) => {
-                                *self
-                                    .x = core::option::Option::Some(
+                                *self.x = core::option::Option::Some(
                                     core::result::Result::Err(
                                         serde_query::__priv::Error::borrowed(
                                             "x",
@@ -111,8 +108,7 @@ const _: () = {
                         };
                         let y = match &mut self.y {
                             core::option::Option::Some(core::result::Result::Ok(_)) => {
-                                *self
-                                    .y = core::option::Option::Some(
+                                *self.y = core::option::Option::Some(
                                     core::result::Result::Err(
                                         serde_query::__priv::Error::borrowed(
                                             "y",
@@ -320,8 +316,7 @@ const _: () = {
             };
             deserializer.deserialize_map(visitor)?;
             if self.x.is_none() {
-                *self
-                    .x = core::option::Option::Some(
+                *self.x = core::option::Option::Some(
                     core::result::Result::Err(
                         serde_query::__priv::Error::borrowed(
                             "x",
@@ -332,8 +327,7 @@ const _: () = {
                 );
             }
             if self.y.is_none() {
-                *self
-                    .y = core::option::Option::Some(
+                *self.y = core::option::Option::Some(
                     core::result::Result::Err(
                         serde_query::__priv::Error::borrowed(
                             "y",
@@ -379,8 +373,7 @@ const _: () = {
                         let mut x = core::option::Option::None;
                         let x = match &mut self.x {
                             core::option::Option::Some(core::result::Result::Ok(_)) => {
-                                *self
-                                    .x = core::option::Option::Some(
+                                *self.x = core::option::Option::Some(
                                     core::result::Result::Err(
                                         serde_query::__priv::Error::borrowed(
                                             "x",
@@ -402,8 +395,7 @@ const _: () = {
                         let mut y = core::option::Option::None;
                         let y = match &mut self.y {
                             core::option::Option::Some(core::result::Result::Ok(_)) => {
-                                *self
-                                    .y = core::option::Option::Some(
+                                *self.y = core::option::Option::Some(
                                     core::result::Result::Err(
                                         serde_query::__priv::Error::borrowed(
                                             "y",

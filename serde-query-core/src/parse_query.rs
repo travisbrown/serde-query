@@ -10,6 +10,7 @@ pub enum Query {
 }
 
 #[derive(Logos, Debug, Clone, Copy, PartialEq, Eq)]
+#[logos(skip r"[ \t\n\f]+")]
 enum Token {
     #[token(r#"."#)]
     Dot,
@@ -24,10 +25,9 @@ enum Token {
     QuotedField,
     #[regex(r#"[0-9]+"#)]
     Index,
-
-    #[error]
-    #[regex(r"[ \t\n\f]+", logos::skip)]
-    Error,
+    // #[error]
+    //#[regex(r"[ \t\n\f]+", logos::skip)]
+    //Error,
 }
 
 #[derive(Debug)]
@@ -60,16 +60,18 @@ pub(crate) fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
 
     loop {
         match tokens.next() {
-            Some(Token::Dot) => {}
+            Some(Ok(Token::Dot)) => {}
             None => break,
             Some(token) => {
                 errors.push(ParseError {
                     message: format!(
-                        "{}..{}: expected {:?}, got {:?}",
+                        "{}..{}: expected {:?}, got {}",
                         tokens.span().start,
                         tokens.span().end,
                         Token::Dot,
                         token
+                            .map(|token| format!("{token:?}"))
+                            .unwrap_or_else(|_| "Error".to_string())
                     ),
                 });
                 continue;
@@ -77,18 +79,31 @@ pub(crate) fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
         }
 
         match tokens.next() {
-            Some(Token::OpenBracket) => {
+            Some(Ok(Token::OpenBracket)) => {
                 let start = tokens.span().start;
                 let inner = {
                     let mut inner = vec![];
                     let mut closed = false;
                     while let Some(token) = tokens.next() {
-                        if token == Token::CloseBracket {
-                            closed = true;
-                            break;
+                        match token {
+                            Ok(Token::CloseBracket) => {
+                                closed = true;
+                                break;
+                            }
+                            Ok(token) => {
+                                inner.push((token, tokens.slice()));
+                            }
+                            Err(()) => {
+                                errors.push(ParseError {
+                                    message: format!(
+                                        "{}..{}: expected an ']', got Errorr",
+                                        start,
+                                        tokens.span().end,
+                                    ),
+                                });
+                                break;
+                            }
                         }
-
-                        inner.push((token, tokens.slice()));
                     }
                     if !closed {
                         errors.push(ParseError {
@@ -129,7 +144,7 @@ pub(crate) fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
                     }
                 }
             }
-            Some(Token::Field) => queries.push(Query::Field {
+            Some(Ok(Token::Field)) => queries.push(Query::Field {
                 name: tokens.slice().into(),
                 quoted: false,
             }),
@@ -146,10 +161,12 @@ pub(crate) fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
             Some(token) => {
                 errors.push(ParseError {
                     message: format!(
-                        "{}..{}: expected '[' or an identifier, got {:?}",
+                        "{}..{}: expected '[' or an identifier, got {}",
                         tokens.span().start,
                         tokens.span().end,
                         token
+                            .map(|token| format!("{token:?}"))
+                            .unwrap_or_else(|_| "Error".to_string())
                     ),
                 });
                 continue;
@@ -178,7 +195,7 @@ mod test {
         use Token::*;
 
         let lexer = Token::lexer(r#". [ "kubernetes_clusters" ].id.[0 ]"#);
-        let tokens: Vec<Token> = lexer.collect();
+        let tokens: Vec<Token> = lexer.collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(
             tokens,
             [

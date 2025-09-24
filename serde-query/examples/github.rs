@@ -5,11 +5,12 @@ struct Message {
 }
 
 fn main() {
-    let reader = ureq::get("https://api.github.com/repos/pandaman64/serde-query/commits")
+    let messages = ureq::get("https://api.github.com/repos/pandaman64/serde-query/commits")
         .call()
-        .into_reader();
-
-    let messages: Vec<Message> = serde_json::from_reader(reader).unwrap();
+        .unwrap()
+        .body_mut()
+        .read_json::<Vec<Message>>()
+        .unwrap();
 
     for message in messages.into_iter() {
         println!("{}", message.message);

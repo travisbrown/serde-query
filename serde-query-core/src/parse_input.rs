@@ -21,7 +21,7 @@ pub(crate) fn parse_input(input: &mut DeriveInput) -> ParseResult {
             .flat_map(|field| {
                 let mut attr_pos = None;
                 for (pos, attr) in field.attrs.iter().enumerate() {
-                    if attr.path.is_ident("query") {
+                    if attr.path().is_ident("query") {
                         if attr_pos.is_some() {
                             diagnostics.push(diagnostic!(
                                 attr,

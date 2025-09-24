@@ -6,14 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-logos = "0.12.1"
+logos = "0.15"
 proc-macro-error = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true }
 
 [dev-dependencies]
-k9 = "0.11.6"
-prettyplease = "0.1.23"
-serde = "1.0.152"
-serde_json = "1.0.92"
+k9 = "0.12"
+prettyplease = "0.2"
+serde = { workspace = true }
+serde_json = { workspace = true }
