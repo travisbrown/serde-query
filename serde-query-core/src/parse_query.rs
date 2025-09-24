@@ -123,9 +123,27 @@ fn read_queries(lexer: &mut Lexer<Token>, queries: &mut Vec<Query>, errors: &mut
     if let Some(mut query) = read_query(lexer, errors) {
         if let Some(token) = lexer.next() {
             match token {
-                Ok(Token::Dot) => read_queries(lexer, queries, errors),
+                Ok(Token::Dot) => {
+                    queries.push(query);
+                    read_queries(lexer, queries, errors);
+                }
                 Ok(Token::QuestionMark) => {
                     query.set_optional();
+                    queries.push(query);
+
+                    if let Some(token) = lexer.next() {
+                        match token {
+                            Ok(Token::Dot) => read_queries(lexer, queries, errors),
+                            other => {
+                                errors.push(ParseError::expected_token(
+                                    lexer.span().start,
+                                    lexer.span().end,
+                                    Token::Dot,
+                                    other.ok(),
+                                ));
+                            }
+                        }
+                    }
                 }
                 other => {
                     errors.push(ParseError::expected_token(
@@ -136,9 +154,9 @@ fn read_queries(lexer: &mut Lexer<Token>, queries: &mut Vec<Query>, errors: &mut
                     ));
                 }
             }
+        } else {
+            queries.push(query);
         }
-
-        queries.push(query);
     }
 }
 
@@ -255,17 +273,21 @@ pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
 
     let (queries, errors) = read_dotted_queries(&mut lexer);
 
-    let fragment = queries
-        .into_iter()
-        .fold(QueryFragment::accept(), |rest, query| match query {
-            Query::Field {
-                name,
-                quoted,
-                optional,
-            } => QueryFragment::field(name, quoted, optional, rest),
-            Query::Index { value, optional } => QueryFragment::index_array(value, optional, rest),
-            Query::CollectArray { optional } => QueryFragment::collect_array(optional, rest),
-        });
+    let fragment =
+        queries
+            .into_iter()
+            .rev()
+            .fold(QueryFragment::accept(), |rest, query| match query {
+                Query::Field {
+                    name,
+                    quoted,
+                    optional,
+                } => QueryFragment::field(name, quoted, optional, rest),
+                Query::Index { value, optional } => {
+                    QueryFragment::index_array(value, optional, rest)
+                }
+                Query::CollectArray { optional } => QueryFragment::collect_array(optional, rest),
+            });
     (fragment, errors)
 }
 
@@ -314,6 +336,17 @@ mod test {
         assert_eq!(
             query,
             QueryFragment::index_array(1, false, QueryFragment::accept())
+        );
+        assert!(errors.is_empty());
+
+        let (query, errors) = parse(r#".[1]?.abc"#);
+        assert_eq!(
+            query,
+            QueryFragment::index_array(
+                1,
+                true,
+                QueryFragment::field("abc".to_string(), false, false, QueryFragment::accept())
+            )
         );
         assert!(errors.is_empty());
     }
