@@ -224,7 +224,7 @@ impl Node {
 
         self.kind
             .merge(other.kind, &self.prefix, self_query, other_query)?;
-        self.queries.extend(other.queries.into_iter());
+        self.queries.extend(other.queries);
         Ok(())
     }
 
