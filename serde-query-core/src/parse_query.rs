@@ -32,6 +32,23 @@ pub struct ParseError {
     pub message: String,
 }
 
+impl ParseError {
+    fn expected_token(start: usize, end: usize, expected: Token, got: Option<Token>) -> Self {
+        let message = match got {
+            Some(token) => format!("{start}..{end}: expected {expected:?}, got {token:?}"),
+            None => format!("{start}..{end}: expected {expected:?}, got Error"),
+        };
+
+        Self { message }
+    }
+
+    fn expected_other(start: usize, end: usize, expected: &str, got: &str) -> Self {
+        Self {
+            message: format!("{start}..{end}: expected {expected}, got {got}"),
+        }
+    }
+}
+
 // very simple handling of escape sequences:
 // \<c> is treated as <c>
 fn from_quoted(quoted: &str) -> String {
@@ -60,15 +77,12 @@ pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
             Some(Ok(Token::Dot)) => {}
             None => break,
             Some(token) => {
-                errors.push(ParseError {
-                    message: format!(
-                        "{}..{}: expected {:?}, got {}",
-                        tokens.span().start,
-                        tokens.span().end,
-                        Token::Dot,
-                        token.map_or_else(|()| "Error".to_string(), |token| format!("{token:?}"))
-                    ),
-                });
+                errors.push(ParseError::expected_token(
+                    tokens.span().start,
+                    tokens.span().end,
+                    Token::Dot,
+                    token.ok(),
+                ));
                 continue;
             }
         }
@@ -89,23 +103,23 @@ pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
                                 inner.push((token, tokens.slice()));
                             }
                             Err(()) => {
-                                errors.push(ParseError {
-                                    message: format!(
-                                        "{start}..{}: expected an ']', got Errorr",
-                                        tokens.span().end
-                                    ),
-                                });
+                                errors.push(ParseError::expected_other(
+                                    start,
+                                    tokens.span().end,
+                                    "an ']'",
+                                    "Error",
+                                ));
                                 break;
                             }
                         }
                     }
                     if !closed {
-                        errors.push(ParseError {
-                            message: format!(
-                                "{start}..{}: expected an ']', got EOF",
-                                tokens.span().end
-                            ),
-                        });
+                        errors.push(ParseError::expected_other(
+                            start,
+                            tokens.span().end,
+                            "an ']'",
+                            "Error",
+                        ));
                         break;
                     }
                     inner
@@ -125,11 +139,12 @@ pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
                     }
                     [] => queries.push(Query::CollectArray),
                     [(token, _), ..] => {
-                        errors.push(ParseError {
-                            message: format!(
-                                "{start}..{end}: expected an index or a quoted field inside indexing, got {token:?}"
-                            ),
-                        });
+                        errors.push(ParseError::expected_other(
+                            start,
+                            end,
+                            "an index or a quoted field inside indexing",
+                            &format!("{token:?}"),
+                        ));
                     }
                 }
             }
@@ -138,24 +153,31 @@ pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
                 quoted: false,
             }),
             None => {
-                errors.push(ParseError {
-                    message: format!(
-                        "{}..{}: expected '[' or an identifier, got EOF",
-                        tokens.span().start,
-                        tokens.span().end,
-                    ),
-                });
+                errors.push(ParseError::expected_other(
+                    tokens.span().start,
+                    tokens.span().end,
+                    "'[' or an identifier",
+                    "EOF",
+                ));
                 break;
             }
-            Some(token) => {
-                errors.push(ParseError {
-                    message: format!(
-                        "{}..{}: expected '[' or an identifier, got {}",
-                        tokens.span().start,
-                        tokens.span().end,
-                        token.map_or_else(|()| "Error".to_string(), |token| format!("{token:?}"))
-                    ),
-                });
+            Some(Ok(token)) => {
+                errors.push(ParseError::expected_other(
+                    tokens.span().start,
+                    tokens.span().end,
+                    "'[' or an identifier",
+                    &format!("{token:?}"),
+                ));
+                break;
+            }
+            Some(Err(())) => {
+                errors.push(ParseError::expected_other(
+                    tokens.span().start,
+                    tokens.span().end,
+                    "'[' or an identifier",
+                    "Error",
+                ));
+                break;
             }
         }
     }
