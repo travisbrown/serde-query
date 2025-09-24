@@ -1,5 +1,30 @@
 use proc_macro2::TokenStream;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Optionality {
+    None,
+    PostOptional,
+    Optional,
+}
+
+impl Optionality {
+    pub const fn is_optional(self) -> bool {
+        matches!(self, Self::Optional)
+    }
+
+    pub const fn is_post_optional(self) -> bool {
+        matches!(self, Self::PostOptional)
+    }
+
+    pub const fn question_mark(self) -> &'static str {
+        if self.is_optional() {
+            "?"
+        } else {
+            ""
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum QueryFragment {
     Accept,
@@ -7,13 +32,13 @@ pub enum QueryFragment {
     Field {
         name: String,
         quoted: bool,
-        optional: bool,
+        optional: Optionality,
         rest: Box<QueryFragment>,
     },
     /// '.' '[' <n> ']' [.<rest>]
     IndexArray {
         index: usize,
-        optional: bool,
+        optional: Optionality,
         rest: Box<QueryFragment>,
     },
     /// '.[]' [.<rest>]
@@ -27,7 +52,7 @@ impl QueryFragment {
         Self::Accept
     }
 
-    pub(crate) fn field(name: String, quoted: bool, optional: bool, rest: Self) -> Self {
+    pub(crate) fn field(name: String, quoted: bool, optional: Optionality, rest: Self) -> Self {
         Self::Field {
             name,
             quoted,
@@ -36,7 +61,7 @@ impl QueryFragment {
         }
     }
 
-    pub(crate) fn index_array(index: usize, optional: bool, rest: Self) -> Self {
+    pub(crate) fn index_array(index: usize, optional: Optionality, rest: Self) -> Self {
         Self::IndexArray {
             index,
             optional,

@@ -17,13 +17,16 @@ pub enum Query {
 }
 
 impl Query {
-    fn set_optional(&mut self) -> bool {
+    const fn is_optional(&self) -> bool {
+        matches!(
+            self,
+            Self::Field { optional: true, .. } | Self::Index { optional: true, .. }
+        )
+    }
+
+    const fn set_optional(&mut self) -> bool {
         match self {
-            Self::Field { optional, .. } => {
-                *optional = true;
-                true
-            }
-            Self::Index { optional, .. } => {
+            Self::Field { optional, .. } | Self::Index { optional, .. } => {
                 *optional = true;
                 true
             }
@@ -278,28 +281,52 @@ pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
     let mut lexer = Token::lexer(input);
 
     let (queries, errors) = read_dotted_queries(&mut lexer);
+    let any_optional = queries.iter().any(Query::is_optional);
 
-    let fragment =
-        queries
-            .into_iter()
-            .rev()
-            .fold(QueryFragment::accept(), |rest, query| match query {
-                Query::Field {
-                    name,
-                    quoted,
-                    optional,
-                } => QueryFragment::field(name, quoted, optional, rest),
-                Query::Index { value, optional } => {
-                    QueryFragment::index_array(value, optional, rest)
-                }
-                Query::CollectArray => QueryFragment::collect_array(rest),
-            });
+    let (fragment, _) = queries.into_iter().rev().fold(
+        (QueryFragment::accept(), false),
+        |(rest, optional_started), query| match query {
+            Query::Field {
+                name,
+                quoted,
+                optional,
+            } => {
+                let optionality = if optional {
+                    super::query::Optionality::Optional
+                } else if any_optional && !optional_started {
+                    super::query::Optionality::PostOptional
+                } else {
+                    super::query::Optionality::None
+                };
+
+                (
+                    QueryFragment::field(name, quoted, optionality, rest),
+                    optional || optional_started,
+                )
+            }
+            Query::Index { value, optional } => {
+                let optionality = if optional {
+                    super::query::Optionality::Optional
+                } else if any_optional && !optional_started {
+                    super::query::Optionality::PostOptional
+                } else {
+                    super::query::Optionality::None
+                };
+
+                (
+                    QueryFragment::index_array(value, optionality, rest),
+                    optional || optional_started,
+                )
+            }
+            Query::CollectArray => (QueryFragment::collect_array(rest), optional_started),
+        },
+    );
     (fragment, errors)
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::{super::query::Optionality, *};
 
     #[test]
     fn lexer() {
@@ -332,7 +359,7 @@ mod test {
             QueryFragment::field(
                 "field name with spaces".into(),
                 true,
-                false,
+                Optionality::None,
                 QueryFragment::accept()
             )
         );
@@ -341,7 +368,7 @@ mod test {
         let (query, errors) = parse(r#".[1]"#);
         assert_eq!(
             query,
-            QueryFragment::index_array(1, false, QueryFragment::accept())
+            QueryFragment::index_array(1, Optionality::None, QueryFragment::accept())
         );
         assert!(errors.is_empty());
 
@@ -350,8 +377,13 @@ mod test {
             query,
             QueryFragment::index_array(
                 1,
-                true,
-                QueryFragment::field("abc".to_string(), false, false, QueryFragment::accept())
+                Optionality::Optional,
+                QueryFragment::field(
+                    "abc".to_string(),
+                    false,
+                    Optionality::PostOptional,
+                    QueryFragment::accept()
+                )
             )
         );
         assert!(errors.is_empty());

@@ -398,7 +398,7 @@ const _: () = {
                                 *self.y = core::option::Option::Some(
                                     core::result::Result::Err(
                                         serde_query::__priv::Error::borrowed(
-                                            "y",
+                                            "x",
                                             ".locs.[]",
                                             "duplicated field 'y'",
                                         ),
