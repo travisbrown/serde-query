@@ -1,4 +1,5 @@
-extern crate proc_macro;
+#![forbid(unsafe_code)]
+#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
 
 use proc_macro::TokenStream;
 use proc_macro_error::{emit_error, proc_macro_error};

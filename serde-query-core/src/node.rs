@@ -36,7 +36,7 @@ impl NodeKind {
         mut tree: BTreeMap<K, Node>,
         other: BTreeMap<K, Node>,
     ) -> Result<BTreeMap<K, Node>, Diagnostic> {
-        for (key, node) in other.into_iter() {
+        for (key, node) in other {
             use std::collections::btree_map::Entry;
             match tree.entry(key) {
                 Entry::Vacant(v) => {
@@ -59,19 +59,19 @@ impl NodeKind {
     ) -> Result<(), Diagnostic> {
         let this = std::mem::replace(self, Self::None);
         *self = match (this, other) {
-            (NodeKind::None, other) => other,
-            (NodeKind::Accept, NodeKind::Accept) => NodeKind::Accept,
-            (NodeKind::Field { fields }, NodeKind::Field { fields: other }) => NodeKind::Field {
+            (Self::None, other) => other,
+            (Self::Accept, Self::Accept) => Self::Accept,
+            (Self::Field { fields }, Self::Field { fields: other }) => Self::Field {
                 fields: Self::merge_trees(fields, other)?,
             },
-            (NodeKind::IndexArray { indices }, NodeKind::IndexArray { indices: other }) => {
-                NodeKind::IndexArray {
+            (Self::IndexArray { indices }, Self::IndexArray { indices: other }) => {
+                Self::IndexArray {
                     indices: Self::merge_trees(indices, other)?,
                 }
             }
-            (NodeKind::CollectArray { mut child }, NodeKind::CollectArray { child: other }) => {
+            (Self::CollectArray { mut child }, Self::CollectArray { child: other }) => {
                 child.merge(*other)?;
-                NodeKind::CollectArray { child }
+                Self::CollectArray { child }
             }
             (this, other) => {
                 let self_ident = self_query.expect("This node must have at least one query because the kind is not NodeKind::None").ident();
@@ -91,18 +91,18 @@ impl NodeKind {
         Ok(())
     }
 
-    fn descripion(&self) -> &str {
+    const fn descripion(&self) -> &str {
         match self {
-            NodeKind::None => "none",
-            NodeKind::Accept => "a value here",
-            NodeKind::Field { .. } => "a struct",
-            NodeKind::IndexArray { .. } | NodeKind::CollectArray { .. } => "a sequence",
+            Self::None => "none",
+            Self::Accept => "a value here",
+            Self::Field { .. } => "a struct",
+            Self::IndexArray { .. } | Self::CollectArray { .. } => "a sequence",
         }
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct Node {
+pub struct Node {
     name: String,
     // map of (id, ty)
     queries: BTreeMap<QueryId, TokenStream>,
@@ -116,17 +116,17 @@ pub(crate) struct Node {
 impl Node {
     pub(crate) fn from_queries<I: Iterator<Item = Query>>(
         queries: I,
-    ) -> Result<Node, Vec<Diagnostic>> {
+    ) -> Result<Self, Vec<Diagnostic>> {
         let mut diagnostics = vec![];
         let mut env = Env::new();
-        let mut node = Node {
+        let mut node = Self {
             name: env.new_node_name(),
             queries: BTreeMap::new(),
             kind: NodeKind::None,
             prefix: String::from("."),
         };
         for query in queries {
-            if let Err(diagnostic) = node.merge(Node::from_query(
+            if let Err(diagnostic) = node.merge(Self::from_query(
                 &mut env,
                 query.id,
                 query.fragment,
@@ -165,9 +165,9 @@ impl Node {
                 rest,
             } => {
                 let rest_prefix = if quoted {
-                    format!("{}.[\"{}\"]", prefix, field_name)
+                    format!("{prefix}.[\"{field_name}\"]")
                 } else {
-                    format!("{}.{}", prefix, field_name)
+                    format!("{prefix}.{field_name}")
                 };
                 let child = Self::from_query(env, id.clone(), *rest, ty.clone(), rest_prefix);
                 let kind = NodeKind::Field {
@@ -186,7 +186,7 @@ impl Node {
                     id.clone(),
                     *rest,
                     ty.clone(),
-                    format!("{}.[{}]", prefix, index),
+                    format!("{prefix}.[{index}]"),
                 );
                 let kind = NodeKind::IndexArray {
                     indices: BTreeMap::from_iter([(index, child)]),
@@ -205,7 +205,7 @@ impl Node {
                     id.clone(),
                     *rest,
                     element_ty,
-                    format!("{}.[]", prefix),
+                    format!("{prefix}.[]"),
                 ));
                 let kind = NodeKind::CollectArray { child };
                 Self {
@@ -253,13 +253,13 @@ impl Node {
     }
 
     fn missing_fields_error_triple<K: Clone + Ord>(
-        children: &BTreeMap<K, Node>,
+        children: &BTreeMap<K, Self>,
     ) -> (Vec<K>, Vec<syn::Ident>, Vec<String>) {
         let mut keys = vec![];
         let mut idents = vec![];
         let mut ident_strings = vec![];
 
-        for (field, node) in children.iter() {
+        for (field, node) in children {
             for id in node.queries.keys() {
                 keys.push(field.clone());
                 idents.push(id.ident().clone());
@@ -347,7 +347,7 @@ impl Node {
                     Self::missing_fields_error_triple(fields);
                 let missing_field_error_messages = missing_field_names
                     .into_iter()
-                    .map(|field_name| format!("missing field '{}'", field_name));
+                    .map(|field_name| format!("missing field '{field_name}'"));
                 let prefix = &self.prefix;
 
                 let match_arms =
@@ -357,8 +357,8 @@ impl Node {
                         .map(|((field, node), field_id)| {
                             let deserialize_seed_ty = node.deserialize_seed_ty();
                             let query_names = node.query_names();
-                            let query_name_strings = query_names.iter().map(|ident| ident.to_string());
-                            let duplicated_field_message = format!("duplicated field '{}'", field);
+                            let query_name_strings = query_names.iter().map(std::string::ToString::to_string);
+                            let duplicated_field_message = format!("duplicated field '{field}'");
 
                             quote::quote! {
                                 #field_deserialize_enum_ty :: #field_id => {
@@ -403,7 +403,7 @@ impl Node {
 
                 let child_code = fields
                     .values()
-                    .map(|node| node.generate())
+                    .map(Self::generate)
                     .collect::<Result<Vec<_>, _>>()?;
 
                 quote::quote! {
@@ -575,7 +575,7 @@ impl Node {
 
                 let child_code = indices
                     .values()
-                    .map(|node| node.generate())
+                    .map(Self::generate)
                     .collect::<Result<Vec<_>, _>>()?;
 
                 quote::quote! {

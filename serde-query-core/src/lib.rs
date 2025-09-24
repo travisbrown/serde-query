@@ -1,3 +1,11 @@
+#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(
+    clippy::doc_link_with_quotes,
+    clippy::missing_errors_doc,
+    clippy::too_many_lines
+)]
+#![forbid(unsafe_code)]
+
 mod node;
 mod parse_input;
 mod parse_query;

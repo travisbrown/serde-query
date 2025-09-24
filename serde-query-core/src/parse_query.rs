@@ -53,7 +53,7 @@ fn from_quoted(quoted: &str) -> String {
     ret
 }
 
-pub(crate) fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
+pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
     let mut tokens = Token::lexer(input);
     let mut queries = vec![];
     let mut errors = vec![];
@@ -69,9 +69,7 @@ pub(crate) fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
                         tokens.span().start,
                         tokens.span().end,
                         Token::Dot,
-                        token
-                            .map(|token| format!("{token:?}"))
-                            .unwrap_or_else(|_| "Error".to_string())
+                        token.map_or_else(|()| "Error".to_string(), |token| format!("{token:?}"))
                     ),
                 });
                 continue;
@@ -96,9 +94,8 @@ pub(crate) fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
                             Err(()) => {
                                 errors.push(ParseError {
                                     message: format!(
-                                        "{}..{}: expected an ']', got Errorr",
-                                        start,
-                                        tokens.span().end,
+                                        "{start}..{}: expected an ']', got Errorr",
+                                        tokens.span().end
                                     ),
                                 });
                                 break;
@@ -108,9 +105,8 @@ pub(crate) fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
                     if !closed {
                         errors.push(ParseError {
                             message: format!(
-                                "{}..{}: expected an ']', got EOF",
-                                start,
-                                tokens.span().end,
+                                "{start}..{}: expected an ']', got EOF",
+                                tokens.span().end
                             ),
                         });
                         break;
@@ -128,19 +124,15 @@ pub(crate) fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
                         queries.push(Query::Field {
                             name: from_quoted(&slice[1..len - 1]),
                             quoted: true,
-                        })
+                        });
                     }
                     [] => queries.push(Query::CollectArray),
                     [(token, _), ..] => {
                         errors.push(ParseError {
                             message: format!(
-                                "{}..{}: expected an index or a quoted field inside indexing, got {:?}",
-                                start,
-                                end,
-                                token,
+                                "{start}..{end}: expected an index or a quoted field inside indexing, got {token:?}"
                             ),
                         });
-                        continue;
                     }
                 }
             }
@@ -164,12 +156,9 @@ pub(crate) fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
                         "{}..{}: expected '[' or an identifier, got {}",
                         tokens.span().start,
                         tokens.span().end,
-                        token
-                            .map(|token| format!("{token:?}"))
-                            .unwrap_or_else(|_| "Error".to_string())
+                        token.map_or_else(|()| "Error".to_string(), |token| format!("{token:?}"))
                     ),
                 });
-                continue;
             }
         }
     }

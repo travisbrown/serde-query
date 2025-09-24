@@ -1,3 +1,6 @@
+#![forbid(unsafe_code)]
+#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+
 //! A query language for Serde data model.
 //!
 //! This crate provides [`serde_query::Deserialize`] and [`serde_query::DeserializeQuery`] derive
@@ -186,16 +189,22 @@ pub mod __priv {
     }
 
     impl Error {
-        pub fn owned(field: &'static str, prefix: &'static str, message: String) -> Self {
-            Error {
+        #[must_use]
+        pub const fn owned(field: &'static str, prefix: &'static str, message: String) -> Self {
+            Self {
                 field,
                 prefix,
                 message: alloc::borrow::Cow::Owned(message),
             }
         }
 
-        pub fn borrowed(field: &'static str, prefix: &'static str, message: &'static str) -> Self {
-            Error {
+        #[must_use]
+        pub const fn borrowed(
+            field: &'static str,
+            prefix: &'static str,
+            message: &'static str,
+        ) -> Self {
+            Self {
                 field,
                 prefix,
                 message: alloc::borrow::Cow::Borrowed(message),
@@ -208,7 +217,7 @@ pub mod __priv {
         errors: &'a [Option<Error>],
     }
 
-    impl<'a> core::fmt::Display for Errors<'a> {
+    impl core::fmt::Display for Errors<'_> {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             match self.error_count() {
                 0 => Ok(()),
@@ -230,7 +239,7 @@ pub mod __priv {
 
                     let mut index = 1;
                     for error in self.errors() {
-                        writeln!(f, "  {}. {}", index, error)?;
+                        writeln!(f, "  {index}. {error}")?;
                         index += 1;
                     }
 
@@ -241,14 +250,15 @@ pub mod __priv {
     }
 
     impl<'a> Errors<'a> {
-        pub fn new(errors: &'a [Option<Error>]) -> Self {
+        #[must_use]
+        pub const fn new(errors: &'a [Option<Error>]) -> Self {
             Self { errors }
         }
 
         fn error_count(&self) -> usize {
             self.errors
                 .iter()
-                .map(|opt| if opt.is_some() { 1 } else { 0 })
+                .map(|opt| usize::from(opt.is_some()))
                 .sum()
         }
 
@@ -315,11 +325,13 @@ pub mod __priv {
         }
     }
 
-    impl<T: core::cmp::Eq + core::hash::Hash> Container for std::collections::HashSet<T> {
+    impl<T: core::cmp::Eq + core::hash::Hash, S: std::hash::BuildHasher + Default> Container
+        for std::collections::HashSet<T, S>
+    {
         type Element = T;
 
         fn empty() -> Self {
-            Self::new()
+            Self::default()
         }
 
         fn reserve(&mut self, additional: usize) {

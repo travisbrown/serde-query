@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum QueryFragment {
+pub enum QueryFragment {
     Accept,
     /// '.' <name> [.<rest>]
     Field {
@@ -21,7 +21,7 @@ pub(crate) enum QueryFragment {
 }
 
 impl QueryFragment {
-    pub(crate) fn accept() -> Self {
+    pub(crate) const fn accept() -> Self {
         Self::Accept
     }
 
@@ -46,27 +46,27 @@ impl QueryFragment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct QueryId(syn::Ident);
+pub struct QueryId(syn::Ident);
 
 impl QueryId {
-    pub(crate) fn new(identifier: syn::Ident) -> Self {
+    pub(crate) const fn new(identifier: syn::Ident) -> Self {
         Self(identifier)
     }
 
-    pub(crate) fn ident(&self) -> &syn::Ident {
+    pub(crate) const fn ident(&self) -> &syn::Ident {
         &self.0
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct Query {
+pub struct Query {
     pub(crate) id: QueryId,
     pub(crate) fragment: QueryFragment,
     pub(crate) ty: TokenStream,
 }
 
 impl Query {
-    pub(crate) fn new(id: QueryId, fragment: QueryFragment, ty: TokenStream) -> Self {
+    pub(crate) const fn new(id: QueryId, fragment: QueryFragment, ty: TokenStream) -> Self {
         Self { id, fragment, ty }
     }
 }

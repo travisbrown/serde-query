@@ -7,18 +7,17 @@ use crate::{
     query::{Query, QueryId},
 };
 
-pub(crate) struct ParseResult {
+pub struct ParseResult {
     pub(crate) queries: Vec<Query>,
     pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
-pub(crate) fn parse_input(input: &mut DeriveInput) -> ParseResult {
+pub fn parse_input(input: &mut DeriveInput) -> ParseResult {
     let mut diagnostics = vec![];
-    let queries = match &mut input.data {
-        syn::Data::Struct(data) => data
-            .fields
+    let queries = if let syn::Data::Struct(data) = &mut input.data {
+        data.fields
             .iter_mut()
-            .flat_map(|field| {
+            .filter_map(|field| {
                 let mut attr_pos = None;
                 for (pos, attr) in field.attrs.iter().enumerate() {
                     if attr.path().is_ident("query") {
@@ -75,15 +74,14 @@ pub(crate) fn parse_input(input: &mut DeriveInput) -> ParseResult {
                     }
                 }
             })
-            .collect(),
-        _ => {
-            diagnostics.push(diagnostic!(
-                input,
-                Level::Error,
-                "serde-query supports only structs"
-            ));
-            vec![]
-        }
+            .collect()
+    } else {
+        diagnostics.push(diagnostic!(
+            input,
+            Level::Error,
+            "serde-query supports only structs"
+        ));
+        vec![]
     };
 
     ParseResult {
