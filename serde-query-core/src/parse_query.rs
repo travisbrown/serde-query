@@ -1,4 +1,4 @@
-use logos::Logos;
+use logos::{Lexer, Logos};
 
 use crate::query::QueryFragment;
 
@@ -34,10 +34,10 @@ pub struct ParseError {
 
 impl ParseError {
     fn expected_token(start: usize, end: usize, expected: Token, got: Option<Token>) -> Self {
-        let message = match got {
-            Some(token) => format!("{start}..{end}: expected {expected:?}, got {token:?}"),
-            None => format!("{start}..{end}: expected {expected:?}, got Error"),
-        };
+        let message = got.map_or_else(
+            || format!("{start}..{end}: expected {expected:?}, got Error"),
+            |token| format!("{start}..{end}: expected {expected:?}, got {token:?}"),
+        );
 
         Self { message }
     }
@@ -67,130 +67,166 @@ fn from_quoted(quoted: &str) -> String {
     ret
 }
 
-pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
-    let mut tokens = Token::lexer(input);
+fn read_dotted_queries(lexer: &mut Lexer<Token>) -> (Vec<Query>, Vec<ParseError>) {
     let mut queries = vec![];
     let mut errors = vec![];
 
-    loop {
-        match tokens.next() {
-            Some(Ok(Token::Dot)) => {}
-            None => break,
-            Some(token) => {
+    if let Some(token) = lexer.next() {
+        match token {
+            Ok(Token::Dot) => {
+                read_queries(lexer, &mut queries, &mut errors);
+            }
+            other => {
                 errors.push(ParseError::expected_token(
-                    tokens.span().start,
-                    tokens.span().end,
+                    lexer.span().start,
+                    lexer.span().end,
                     Token::Dot,
-                    token.ok(),
+                    other.ok(),
                 ));
-                continue;
-            }
-        }
 
-        match tokens.next() {
-            Some(Ok(Token::OpenBracket)) => {
-                let start = tokens.span().start;
-                let inner = {
-                    let mut inner = vec![];
-                    let mut closed = false;
-                    while let Some(token) = tokens.next() {
-                        match token {
-                            Ok(Token::CloseBracket) => {
-                                closed = true;
-                                break;
-                            }
-                            Ok(token) => {
-                                inner.push((token, tokens.slice()));
-                            }
-                            Err(()) => {
-                                errors.push(ParseError::expected_other(
-                                    start,
-                                    tokens.span().end,
-                                    "an ']'",
-                                    "Error",
-                                ));
-                                break;
-                            }
-                        }
-                    }
-                    if !closed {
-                        errors.push(ParseError::expected_other(
-                            start,
-                            tokens.span().end,
-                            "an ']'",
-                            "Error",
-                        ));
-                        break;
-                    }
-                    inner
-                };
-                let end = tokens.span().end;
-
-                match inner.as_slice() {
-                    [(Token::Index, slice)] => queries.push(Query::Index(slice.parse().unwrap())),
-                    [(Token::QuotedField, slice)] => {
-                        let len = slice.len();
-                        assert_eq!(&slice[0..1], "\"");
-                        assert_eq!(&slice[len - 1..], "\"");
-                        queries.push(Query::Field {
-                            name: from_quoted(&slice[1..len - 1]),
-                            quoted: true,
-                        });
-                    }
-                    [] => queries.push(Query::CollectArray),
-                    [(token, _), ..] => {
-                        errors.push(ParseError::expected_other(
-                            start,
-                            end,
-                            "an index or a quoted field inside indexing",
-                            &format!("{token:?}"),
-                        ));
-                    }
-                }
-            }
-            Some(Ok(Token::Field)) => queries.push(Query::Field {
-                name: tokens.slice().into(),
-                quoted: false,
-            }),
-            None => {
-                errors.push(ParseError::expected_other(
-                    tokens.span().start,
-                    tokens.span().end,
-                    "'[' or an identifier",
-                    "EOF",
-                ));
-                break;
-            }
-            Some(Ok(token)) => {
-                errors.push(ParseError::expected_other(
-                    tokens.span().start,
-                    tokens.span().end,
-                    "'[' or an identifier",
-                    &format!("{token:?}"),
-                ));
-                break;
-            }
-            Some(Err(())) => {
-                errors.push(ParseError::expected_other(
-                    tokens.span().start,
-                    tokens.span().end,
-                    "'[' or an identifier",
-                    "Error",
-                ));
-                break;
+                return read_dotted_queries(lexer);
             }
         }
     }
 
-    let fragment =
-        queries
-            .into_iter()
-            .rev()
-            .fold(QueryFragment::accept(), |rest, query| match query {
-                Query::Field { name, quoted } => QueryFragment::field(name, quoted, rest),
-                Query::Index(index) => QueryFragment::index_array(index, rest),
-                Query::CollectArray => QueryFragment::collect_array(rest),
-            });
+    (queries, errors)
+}
+
+fn read_queries(lexer: &mut Lexer<Token>, queries: &mut Vec<Query>, errors: &mut Vec<ParseError>) {
+    if let Some(query) = read_query(lexer, errors) {
+        if let Some(token) = lexer.next() {
+            match token {
+                Ok(Token::Dot) => read_queries(lexer, queries, errors),
+                other => {
+                    errors.push(ParseError::expected_token(
+                        lexer.span().start,
+                        lexer.span().end,
+                        Token::Dot,
+                        other.ok(),
+                    ));
+                }
+            }
+        }
+
+        queries.push(query);
+    }
+}
+
+fn read_query(lexer: &mut Lexer<Token>, errors: &mut Vec<ParseError>) -> Option<Query> {
+    match lexer.next() {
+        None => {
+            errors.push(ParseError::expected_other(
+                lexer.span().start,
+                lexer.span().end,
+                "'[' or an identifier",
+                "EOF",
+            ));
+
+            None
+        }
+        Some(Err(())) => {
+            errors.push(ParseError::expected_other(
+                lexer.span().start,
+                lexer.span().end,
+                "'[' or an identifier",
+                "Error",
+            ));
+
+            None
+        }
+        Some(Ok(Token::Field)) => Some(Query::Field {
+            name: lexer.slice().into(),
+            quoted: false,
+        }),
+        Some(Ok(Token::OpenBracket)) => read_bracketed(lexer, errors),
+        Some(Ok(other)) => {
+            errors.push(ParseError::expected_other(
+                lexer.span().start,
+                lexer.span().end,
+                "'[' or an identifier",
+                &format!("{other:?}"),
+            ));
+
+            None
+        }
+    }
+}
+
+fn read_bracketed(lexer: &mut Lexer<Token>, errors: &mut Vec<ParseError>) -> Option<Query> {
+    let start = lexer.span().start;
+    let inner = {
+        let mut inner = vec![];
+        let mut closed = false;
+        while let Some(token) = lexer.next() {
+            match token {
+                Ok(Token::CloseBracket) => {
+                    closed = true;
+                    break;
+                }
+                Ok(token) => {
+                    inner.push((token, lexer.slice()));
+                }
+                Err(()) => {
+                    errors.push(ParseError::expected_other(
+                        start,
+                        lexer.span().end,
+                        "an ']'",
+                        "Error",
+                    ));
+                    break;
+                }
+            }
+        }
+        if !closed {
+            errors.push(ParseError::expected_other(
+                start,
+                lexer.span().end,
+                "an ']'",
+                "Error",
+            ));
+            return None;
+        }
+        inner
+    };
+
+    let end = lexer.span().end;
+
+    match inner.as_slice() {
+        [(Token::Index, slice)] => Some(Query::Index(slice.parse().unwrap())),
+        [(Token::QuotedField, slice)] => {
+            let len = slice.len();
+            assert_eq!(&slice[0..1], "\"");
+            assert_eq!(&slice[len - 1..], "\"");
+            Some(Query::Field {
+                name: from_quoted(&slice[1..len - 1]),
+                quoted: true,
+            })
+        }
+        [] => Some(Query::CollectArray),
+        [(token, _), ..] => {
+            errors.push(ParseError::expected_other(
+                start,
+                end,
+                "an index or a quoted field inside indexing",
+                &format!("{token:?}"),
+            ));
+            None
+        }
+    }
+}
+
+pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
+    let mut lexer = Token::lexer(input);
+
+    let (queries, errors) = read_dotted_queries(&mut lexer);
+
+    let fragment = queries
+        .into_iter()
+        .fold(QueryFragment::accept(), |rest, query| match query {
+            Query::Field { name, quoted } => QueryFragment::field(name, quoted, rest),
+            Query::Index(index) => QueryFragment::index_array(index, rest),
+            Query::CollectArray => QueryFragment::collect_array(rest),
+        });
     (fragment, errors)
 }
 
