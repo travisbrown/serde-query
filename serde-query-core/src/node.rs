@@ -162,6 +162,7 @@ impl Node {
             QueryFragment::Field {
                 name: field_name,
                 quoted,
+                optional: _,
                 rest,
             } => {
                 let rest_prefix = if quoted {
@@ -180,7 +181,11 @@ impl Node {
                     prefix,
                 }
             }
-            QueryFragment::IndexArray { index, rest } => {
+            QueryFragment::IndexArray {
+                index,
+                optional: _,
+                rest,
+            } => {
                 let child = Self::from_query(
                     env,
                     id.clone(),
@@ -198,7 +203,7 @@ impl Node {
                     prefix,
                 }
             }
-            QueryFragment::CollectArray { rest } => {
+            QueryFragment::CollectArray { optional: _, rest } => {
                 let element_ty = quote::quote!(<#ty as serde_query::__priv::Container>::Element);
                 let child = Box::new(Self::from_query(
                     env,

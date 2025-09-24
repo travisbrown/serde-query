@@ -7,15 +7,18 @@ pub enum QueryFragment {
     Field {
         name: String,
         quoted: bool,
+        optional: bool,
         rest: Box<QueryFragment>,
     },
     /// '.' '[' <n> ']' [.<rest>]
     IndexArray {
         index: usize,
+        optional: bool,
         rest: Box<QueryFragment>,
     },
     /// '.[]' [.<rest>]
     CollectArray {
+        optional: bool,
         rest: Box<QueryFragment>,
     },
 }
@@ -25,23 +28,28 @@ impl QueryFragment {
         Self::Accept
     }
 
-    pub(crate) fn field(name: String, quoted: bool, rest: Self) -> Self {
+    pub(crate) fn field(name: String, quoted: bool, optional: bool, rest: Self) -> Self {
         Self::Field {
             name,
             quoted,
+            optional,
             rest: rest.into(),
         }
     }
 
-    pub(crate) fn index_array(index: usize, rest: Self) -> Self {
+    pub(crate) fn index_array(index: usize, optional: bool, rest: Self) -> Self {
         Self::IndexArray {
             index,
+            optional,
             rest: rest.into(),
         }
     }
 
-    pub(crate) fn collect_array(rest: Self) -> Self {
-        Self::CollectArray { rest: rest.into() }
+    pub(crate) fn collect_array(optional: bool, rest: Self) -> Self {
+        Self::CollectArray {
+            optional,
+            rest: rest.into(),
+        }
     }
 }
 

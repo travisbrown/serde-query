@@ -4,9 +4,34 @@ use crate::query::QueryFragment;
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum Query {
-    Field { name: String, quoted: bool },
-    Index(usize),
-    CollectArray,
+    Field {
+        name: String,
+        quoted: bool,
+        optional: bool,
+    },
+    Index {
+        value: usize,
+        optional: bool,
+    },
+    CollectArray {
+        optional: bool,
+    },
+}
+
+impl Query {
+    fn set_optional(&mut self) {
+        match self {
+            Self::Field { optional, .. } => {
+                *optional = true;
+            }
+            Self::Index { optional, .. } => {
+                *optional = true;
+            }
+            Self::CollectArray { optional } => {
+                *optional = true;
+            }
+        }
+    }
 }
 
 #[derive(Logos, Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +43,8 @@ enum Token {
     OpenBracket,
     #[token(r#"]"#)]
     CloseBracket,
+    #[token(r#"?"#)]
+    QuestionMark,
     #[regex(r#"[a-zA-Z_][0-9a-zA-Z_]*"#)]
     Field,
     // https://github.com/maciejhirsz/logos/issues/133#issuecomment-619444615
@@ -93,10 +120,13 @@ fn read_dotted_queries(lexer: &mut Lexer<Token>) -> (Vec<Query>, Vec<ParseError>
 }
 
 fn read_queries(lexer: &mut Lexer<Token>, queries: &mut Vec<Query>, errors: &mut Vec<ParseError>) {
-    if let Some(query) = read_query(lexer, errors) {
+    if let Some(mut query) = read_query(lexer, errors) {
         if let Some(token) = lexer.next() {
             match token {
                 Ok(Token::Dot) => read_queries(lexer, queries, errors),
+                Ok(Token::QuestionMark) => {
+                    query.set_optional();
+                }
                 other => {
                     errors.push(ParseError::expected_token(
                         lexer.span().start,
@@ -137,6 +167,7 @@ fn read_query(lexer: &mut Lexer<Token>, errors: &mut Vec<ParseError>) -> Option<
         Some(Ok(Token::Field)) => Some(Query::Field {
             name: lexer.slice().into(),
             quoted: false,
+            optional: false,
         }),
         Some(Ok(Token::OpenBracket)) => read_bracketed(lexer, errors),
         Some(Ok(other)) => {
@@ -192,7 +223,10 @@ fn read_bracketed(lexer: &mut Lexer<Token>, errors: &mut Vec<ParseError>) -> Opt
     let end = lexer.span().end;
 
     match inner.as_slice() {
-        [(Token::Index, slice)] => Some(Query::Index(slice.parse().unwrap())),
+        [(Token::Index, slice)] => Some(Query::Index {
+            value: slice.parse().unwrap(),
+            optional: false,
+        }),
         [(Token::QuotedField, slice)] => {
             let len = slice.len();
             assert_eq!(&slice[0..1], "\"");
@@ -200,9 +234,10 @@ fn read_bracketed(lexer: &mut Lexer<Token>, errors: &mut Vec<ParseError>) -> Opt
             Some(Query::Field {
                 name: from_quoted(&slice[1..len - 1]),
                 quoted: true,
+                optional: false,
             })
         }
-        [] => Some(Query::CollectArray),
+        [] => Some(Query::CollectArray { optional: false }),
         [(token, _), ..] => {
             errors.push(ParseError::expected_other(
                 start,
@@ -223,9 +258,13 @@ pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
     let fragment = queries
         .into_iter()
         .fold(QueryFragment::accept(), |rest, query| match query {
-            Query::Field { name, quoted } => QueryFragment::field(name, quoted, rest),
-            Query::Index(index) => QueryFragment::index_array(index, rest),
-            Query::CollectArray => QueryFragment::collect_array(rest),
+            Query::Field {
+                name,
+                quoted,
+                optional,
+            } => QueryFragment::field(name, quoted, optional, rest),
+            Query::Index { value, optional } => QueryFragment::index_array(value, optional, rest),
+            Query::CollectArray { optional } => QueryFragment::collect_array(optional, rest),
         });
     (fragment, errors)
 }
@@ -265,6 +304,7 @@ mod test {
             QueryFragment::field(
                 "field name with spaces".into(),
                 true,
+                false,
                 QueryFragment::accept()
             )
         );
@@ -273,7 +313,7 @@ mod test {
         let (query, errors) = parse(r#".[1]"#);
         assert_eq!(
             query,
-            QueryFragment::index_array(1, QueryFragment::accept())
+            QueryFragment::index_array(1, false, QueryFragment::accept())
         );
         assert!(errors.is_empty());
     }
