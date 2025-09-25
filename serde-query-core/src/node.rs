@@ -22,13 +22,13 @@ impl Env {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum NodeKind {
     None,
     Accept,
     Field { fields: BTreeMap<String, NodeArrow> },
     IndexArray { indices: BTreeMap<usize, NodeArrow> },
-    CollectArray { child: Box<Node> },
+    CollectArray { child: Box<NodeArrow> },
 }
 
 impl NodeKind {
@@ -101,7 +101,7 @@ impl NodeKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct NodeArrow {
     node: Node,
     optional: Optionality,
@@ -172,7 +172,7 @@ impl NodeArrow {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct QueryType {
     tokens: TokenStream,
     optional: Optionality,
@@ -185,7 +185,23 @@ impl QueryType {
                 diagnostic!(
                     self.tokens.clone().into_iter().next().unwrap(),
                     Level::Error,
-                    "An optional operator can only be used on a field with an outer Option",
+                    "An optional operator can only be used on a field with an outer Option: {:#?}",
+                    self.tokens
+                )
+            })
+        } else {
+            Ok(self.tokens.clone())
+        }
+    }
+
+    fn any_optional_target(&self) -> Result<TokenStream, Diagnostic> {
+        if self.optional.is_optional() {
+            remove_outer_option(&self.tokens).ok_or_else(|| {
+                diagnostic!(
+                    self.tokens.clone().into_iter().next().unwrap(),
+                    Level::Error,
+                    "An optional operator can only be used on a field with an outer Option: {:#?}",
+                    self.tokens
                 )
             })
         } else {
@@ -200,7 +216,7 @@ impl QueryType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Node {
     name: String,
     // map of (id, ty)
@@ -309,21 +325,26 @@ impl Node {
                     prefix,
                 })
             }
-            QueryFragment::CollectArray { rest } => {
-                let element_ty = quote::quote!(<#ty as serde_query::__priv::Container>::Element);
+            QueryFragment::CollectArray { optional, rest } => {
+                let element_ty = if optional.is_post_optional() {
+                    let stripped = remove_outer_option(&ty).expect("Need an Option");
+
+                    quote::quote!(Option<<#stripped as serde_query::__priv::Container>::Element>)
+                } else {
+                    quote::quote!(<#ty as serde_query::__priv::Container>::Element)
+                };
+
                 let child = Box::new(Self::from_query(
                     env,
                     id.clone(),
                     *rest,
                     element_ty,
-                    if outer_optional.is_optional() {
-                        Optionality::PostOptional
-                    } else {
-                        Optionality::None
-                    },
+                    optional,
                     format!("{prefix}.[]"),
                 )?);
-                let kind = NodeKind::CollectArray { child };
+                let kind = NodeKind::CollectArray {
+                    child: Box::new(NodeArrow::new((*child).clone(), optional)),
+                };
                 Ok(Self {
                     name,
                     queries: BTreeMap::from_iter([(id, QueryType::new(ty, outer_optional))]),
@@ -381,6 +402,13 @@ impl Node {
         self.queries
             .values()
             .map(|query_type| &query_type.tokens)
+            .collect()
+    }
+
+    fn query_target_types(&self) -> Result<Vec<TokenStream>, Diagnostic> {
+        self.queries
+            .values()
+            .map(|query_type| query_type.any_optional_target())
             .collect()
     }
 
@@ -828,109 +856,206 @@ impl Node {
 
                 let query_names = self.query_names();
                 let query_types = self.query_types();
+                let query_target_types = self.query_target_types()?;
 
-                let child_code = child.generate()?;
-                let child_deserialize_seed_ty = child.deserialize_seed_ty();
+                let child_code = child.node.generate()?;
+                let child_deserialize_seed_ty = child.node.deserialize_seed_ty();
                 // child_query_names should be equal to those of self
 
-                quote::quote! {
-                    struct #deserialize_seed_ty<'query> {
-                        #(
-                            #query_names: &'query mut core::option::Option<
-                                core::result::Result<
-                                    #query_types,
-                                    serde_query::__priv::Error,
-                                >
-                            >,
-                        )*
-                    }
-
-                    impl<'query, 'de> serde_query::__priv::serde::de::DeserializeSeed<'de> for #deserialize_seed_ty<'query> {
-                        type Value = ();
-
-                        fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-                        where
-                            D: serde_query::__priv::serde::Deserializer<'de>,
-                        {
+                if child.optional.is_post_optional() {
+                    quote::quote! {
+                        struct #deserialize_seed_ty<'query> {
                             #(
-                                let mut #query_names = core::result::Result::Ok(
-                                    <#query_types as serde_query::__priv::Container>::empty()
-                                );
+                                #query_names: &'query mut core::option::Option<
+                                    core::result::Result<
+                                        #query_types,
+                                        serde_query::__priv::Error,
+                                    >
+                                >,
                             )*
-                            let visitor = #visitor_ty {
-                                #(
-                                    #query_names: &mut #query_names,
-                                )*
-                            };
-                            deserializer.deserialize_seq(visitor)?;
-                            #(
-                                *self.#query_names = core::option::Option::Some(#query_names);
-                            )*
-                            core::result::Result::Ok(())
-                        }
-                    }
-
-                    struct #visitor_ty<'query> {
-                        #(
-                            #query_names: &'query mut core::result::Result<#query_types, serde_query::__priv::Error>,
-                        )*
-                    }
-
-                    impl<'query, 'de> serde_query::__priv::serde::de::Visitor<'de> for #visitor_ty<'query> {
-                        type Value = ();
-
-                        fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
-                            core::fmt::Formatter::write_str(formatter, "a sequence")
                         }
 
-                        fn visit_seq<A>(mut self, mut seq: A) -> Result<Self::Value, A::Error>
-                        where
-                            A: serde_query::__priv::serde::de::SeqAccess<'de>,
-                        {
-                            if let core::option::Option::Some(additional) = seq.size_hint() {
+                        impl<'query, 'de> serde_query::__priv::serde::de::DeserializeSeed<'de> for #deserialize_seed_ty<'query> {
+                            type Value = ();
+
+                            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+                            where
+                                D: serde_query::__priv::serde::Deserializer<'de>,
+                            {
                                 #(
-                                    <#query_types as serde_query::__priv::Container>::reserve(
-                                        self.#query_names.as_mut().unwrap(),
-                                        additional,
+                                    let mut #query_names = core::result::Result::Ok(
+                                        Some(<#query_target_types as serde_query::__priv::Container>::empty())
                                     );
                                 )*
-                            }
-                            loop {
-                                #(
-                                    let mut #query_names = core::option::Option::None;
-                                )*
-                                match seq.next_element_seed(#child_deserialize_seed_ty {
+                                let visitor = #visitor_ty {
                                     #(
                                         #query_names: &mut #query_names,
                                     )*
-                                })? {
-                                    core::option::Option::None => break,
-                                    core::option::Option::Some(()) => {
-                                        #(
-                                            match &mut self.#query_names {
-                                                core::result::Result::Ok(ref mut container) => match #query_names {
-                                                    core::option::Option::Some(core::result::Result::Ok(v)) => {
-                                                        <#query_types as serde_query::__priv::Container>::extend_one(
-                                                            container,
-                                                            v,
-                                                        )
-                                                    },
-                                                    core::option::Option::Some(core::result::Result::Err(e)) => {
-                                                        *self.#query_names = core::result::Result::Err(e);
-                                                    },
-                                                    core::option::Option::None => unreachable!(),
-                                                },
-                                                core::result::Result::Err(_) => {},
-                                            }
-                                        )*
-                                    }
                                 };
+                                deserializer.deserialize_seq(visitor)?;
+                                #(
+                                    *self.#query_names = core::option::Option::Some(#query_names);
+                                )*
+                                core::result::Result::Ok(())
                             }
-                            core::result::Result::Ok(())
                         }
-                    }
 
-                    #child_code
+                        struct #visitor_ty<'query> {
+                            #(
+                                #query_names: &'query mut core::result::Result<#query_types, serde_query::__priv::Error>,
+                            )*
+                        }
+
+                        impl<'query, 'de> serde_query::__priv::serde::de::Visitor<'de> for #visitor_ty<'query> {
+                            type Value = ();
+
+                            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
+                                core::fmt::Formatter::write_str(formatter, "a sequence")
+                            }
+
+                            fn visit_seq<A>(mut self, mut seq: A) -> Result<Self::Value, A::Error>
+                            where
+                                A: serde_query::__priv::serde::de::SeqAccess<'de>,
+                            {
+                                loop {
+                                    #(
+                                        let mut #query_names = core::option::Option::None;
+                                    )*
+                                    match seq.next_element_seed(#child_deserialize_seed_ty {
+                                        #(
+                                            #query_names: &mut #query_names,
+                                        )*
+                                    })? {
+                                        core::option::Option::None => break,
+                                        core::option::Option::Some(()) => {
+                                            #(
+                                                match &mut self.#query_names {
+                                                    core::result::Result::Ok(Some(ref mut container)) => match #query_names {
+                                                        core::option::Option::Some(core::result::Result::Ok(Some(v))) => {
+                                                            <#query_target_types as serde_query::__priv::Container>::extend_one(
+                                                                container,
+                                                                v,
+                                                            )
+                                                        },
+                                                        core::option::Option::Some(core::result::Result::Ok(None)) => {},
+                                                        core::option::Option::Some(core::result::Result::Err(e)) => {
+                                                            *self.#query_names = core::result::Result::Err(e);
+                                                        },
+                                                        core::option::Option::None => unreachable!(),
+                                                    },
+                                                    core::result::Result::Ok(None) => {},
+                                                    core::result::Result::Err(_) => {},
+                                                }
+                                            )*
+                                        }
+                                    };
+                                }
+                                core::result::Result::Ok(())
+                            }
+                        }
+
+                        #child_code
+                    }
+                } else {
+                    quote::quote! {
+                        struct #deserialize_seed_ty<'query> {
+                            #(
+                                #query_names: &'query mut core::option::Option<
+                                    core::result::Result<
+                                        #query_types,
+                                        serde_query::__priv::Error,
+                                    >
+                                >,
+                            )*
+                        }
+
+                        impl<'query, 'de> serde_query::__priv::serde::de::DeserializeSeed<'de> for #deserialize_seed_ty<'query> {
+                            type Value = ();
+
+                            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+                            where
+                                D: serde_query::__priv::serde::Deserializer<'de>,
+                            {
+                                #(
+                                    let mut #query_names = core::result::Result::Ok(
+                                        <#query_target_types as serde_query::__priv::Container>::empty()
+                                    );
+                                )*
+                                let visitor = #visitor_ty {
+                                    #(
+                                        #query_names: &mut #query_names,
+                                    )*
+                                };
+                                deserializer.deserialize_seq(visitor)?;
+                                #(
+                                    *self.#query_names = core::option::Option::Some(#query_names);
+                                )*
+                                core::result::Result::Ok(())
+                            }
+                        }
+
+                        struct #visitor_ty<'query> {
+                            #(
+                                #query_names: &'query mut core::result::Result<#query_types, serde_query::__priv::Error>,
+                            )*
+                        }
+
+                        impl<'query, 'de> serde_query::__priv::serde::de::Visitor<'de> for #visitor_ty<'query> {
+                            type Value = ();
+
+                            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
+                                core::fmt::Formatter::write_str(formatter, "a sequence")
+                            }
+
+                            fn visit_seq<A>(mut self, mut seq: A) -> Result<Self::Value, A::Error>
+                            where
+                                A: serde_query::__priv::serde::de::SeqAccess<'de>,
+                            {
+                                if let core::option::Option::Some(additional) = seq.size_hint() {
+                                    #(
+                                        <#query_target_types as serde_query::__priv::Container>::reserve(
+                                            self.#query_names.as_mut().unwrap(),
+                                            additional,
+                                        );
+                                    )*
+                                }
+                                loop {
+                                    #(
+                                        let mut #query_names = core::option::Option::None;
+                                    )*
+                                    match seq.next_element_seed(#child_deserialize_seed_ty {
+                                        #(
+                                            #query_names: &mut #query_names,
+                                        )*
+                                    })? {
+                                        core::option::Option::None => break,
+                                        core::option::Option::Some(()) => {
+                                            #(
+                                                match &mut self.#query_names {
+                                                    core::result::Result::Ok(ref mut container) => match #query_names {
+                                                        core::option::Option::Some(core::result::Result::Ok(v)) => {
+                                                            <#query_target_types as serde_query::__priv::Container>::extend_one(
+                                                                container,
+                                                                v,
+                                                            )
+                                                        },
+                                                        core::option::Option::Some(core::result::Result::Err(e)) => {
+                                                            *self.#query_names = core::result::Result::Err(e);
+                                                        },
+                                                        core::option::Option::None => unreachable!(),
+                                                    },
+                                                    core::result::Result::Err(_) => {},
+                                                }
+                                            )*
+                                        }
+                                    };
+                                }
+                                core::result::Result::Ok(())
+                            }
+                        }
+
+                        #child_code
+                    }
                 }
             }
             NodeKind::None => {
@@ -1016,9 +1141,7 @@ fn remove_outer_option(tokens: &TokenStream) -> Option<TokenStream> {
     if tokens.len() >= 4 {
         match &tokens[0..2] {
             [TokenTree::Ident(option_ident), TokenTree::Punct(open_punct)]
-                if *option_ident == "Option"
-                    && open_punct.as_char() == '<'
-                    && open_punct.spacing() == Spacing::Alone =>
+                if *option_ident == "Option" && open_punct.as_char() == '<' =>
             {
                 let valid = tokens.last().is_some_and(|last| {
                     matches!(

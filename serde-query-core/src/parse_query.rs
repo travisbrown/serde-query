@@ -318,7 +318,18 @@ pub fn parse(input: &str) -> (QueryFragment, Vec<ParseError>) {
                     optional || optional_started,
                 )
             }
-            Query::CollectArray => (QueryFragment::collect_array(rest), optional_started),
+            Query::CollectArray => {
+                let optionality = if any_optional && !optional_started {
+                    super::query::Optionality::PostOptional
+                } else {
+                    super::query::Optionality::None
+                };
+
+                (
+                    QueryFragment::collect_array(optionality, rest),
+                    optional_started,
+                )
+            }
         },
     );
     (fragment, errors)

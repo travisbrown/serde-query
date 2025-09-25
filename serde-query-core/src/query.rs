@@ -43,6 +43,7 @@ pub enum QueryFragment {
     },
     /// '.[]' [.<rest>]
     CollectArray {
+        optional: Optionality,
         rest: Box<QueryFragment>,
     },
 }
@@ -69,8 +70,11 @@ impl QueryFragment {
         }
     }
 
-    pub(crate) fn collect_array(rest: Self) -> Self {
-        Self::CollectArray { rest: rest.into() }
+    pub(crate) fn collect_array(optional: Optionality, rest: Self) -> Self {
+        Self::CollectArray {
+            optional,
+            rest: rest.into(),
+        }
     }
 }
 
