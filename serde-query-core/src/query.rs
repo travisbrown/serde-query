@@ -33,18 +33,18 @@ pub enum QueryFragment {
         name: String,
         quoted: bool,
         optional: Optionality,
-        rest: Box<QueryFragment>,
+        rest: Box<Self>,
     },
     /// '.' '[' <n> ']' [.<rest>]
     IndexArray {
         index: usize,
         optional: Optionality,
-        rest: Box<QueryFragment>,
+        rest: Box<Self>,
     },
     /// '.[]' [.<rest>]
     CollectArray {
         optional: Optionality,
-        rest: Box<QueryFragment>,
+        rest: Box<Self>,
     },
 }
 

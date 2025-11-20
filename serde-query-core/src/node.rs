@@ -408,7 +408,7 @@ impl Node {
     fn query_target_types(&self) -> Result<Vec<TokenStream>, Diagnostic> {
         self.queries
             .values()
-            .map(|query_type| query_type.any_optional_target())
+            .map(QueryType::any_optional_target)
             .collect()
     }
 
